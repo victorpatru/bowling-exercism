@@ -1,181 +1,87 @@
-const MAX_FRAME = 10;
-const MAX_PINS = 10;
-
-type ScoreModifier = {
-  totalModifier: number;
-  roundModifier: number;
-};
-
 export class Bowling {
-  #_score: number;
-  // Roll within our frame
-  #_currentThrow: 1 | 2;
-  #_currentFrame: number;
-  #_currentRemainingPins: number;
-  #_maxFillBall: 0 | 1 | 2;
-  #_currentFillBall: number;
-  #_scoreModifier: ScoreModifier;
+  private runningScore = 0;
+  private multiplierNext = 0;
+  private multiplierNextNext = 0;
+  private frame = 1;
+  private runningFrame: Array<number> = [];
 
-  constructor() {
-    this.#_score = 0;
-    this.#_currentThrow = 1;
-    this.#_currentFrame = 1;
-    this.#_currentRemainingPins = MAX_PINS;
-    this.#_scoreModifier = {
-      totalModifier: 0,
-      roundModifier: 0,
-    };
-
-    this.#_currentFillBall = 1;
-    this.#_maxFillBall = 0;
-  }
-
-  private checkGameRules(pins: number): void {
-    if (
-      this.#_currentFrame > MAX_FRAME &&
-      this.#_currentFillBall > this.#_maxFillBall
-    ) {
-      throw new Error("Cannot roll after game is over");
-    }
-
+  private validateRoll(pins: number): void {
     if (pins < 0) {
       throw new Error("Negative roll is invalid");
     }
+    if (pins > 10) {
+      throw new Error("Pin count exceeds pins on the lane");
+    }
 
-    if (pins > MAX_PINS || pins > this.#_currentRemainingPins) {
+    if (this.frame > 10 && this.multiplierNext === 0) {
+      throw new Error("Cannot roll after game is over");
+    }
+  }
+
+  static validateFrame(frame: Array<number>): void {
+    if (frame.reduce((acc, val) => acc + val, 0) > 10) {
       throw new Error("Pin count exceeds pins on the lane");
     }
   }
 
-  private startNewFrame(): void {
-    this.#_currentThrow = 1;
-    this.#_currentFrame += 1;
-    this.#_currentRemainingPins = MAX_PINS;
-  }
-
-  private progressCurrentFrame(pins: number): void {
-    this.#_currentThrow = 2;
-    this.#_currentRemainingPins = MAX_PINS - pins;
-  }
-
-  private checkIsStrike(pins: number): boolean {
-    return pins === MAX_PINS && this.#_currentThrow === 1;
-  }
-
-  private checkIsSpare(pins: number): boolean {
-    return pins === this.#_currentRemainingPins && this.#_currentThrow === 2;
-  }
-
-  private isFillBallFrame(): boolean {
-    return this.#_maxFillBall > 0;
-  }
-
-  private handleSettingUpFillBall(params: {
-    isStrike: boolean;
-    isSpare: boolean;
-  }): void {
-    const { isStrike, isSpare } = params;
-    this.#_maxFillBall += Number(isStrike) * 2 + Number(isSpare);
-  }
-
-  private increaseModifier(params: {
-    isStrike: boolean;
-    isSpare: boolean;
-  }): void {
-    const { isStrike, isSpare } = params;
-
-    const strikePoint = Number(isStrike);
-    const sparePoint = Number(isSpare);
-    const totalModifierIncrement = strikePoint * 2 + sparePoint;
-    const roundModifierIncrement = strikePoint + sparePoint;
-    this.#_scoreModifier.totalModifier += totalModifierIncrement;
-    this.#_scoreModifier.roundModifier += roundModifierIncrement;
-  }
-
-  private decreaseModifier(): void {
-    const { totalModifier, roundModifier } = this.#_scoreModifier;
-    const currentTotalModifier = totalModifier - roundModifier;
-    this.#_scoreModifier = {
-      totalModifier: currentTotalModifier,
-      roundModifier:
-        currentTotalModifier <= 1 || currentTotalModifier % 2 === 0
-          ? currentTotalModifier
-          : currentTotalModifier - 1,
-    };
-  }
-
-  private isFinalFrame(): boolean {
-    return this.#_currentFrame === MAX_FRAME;
-  }
-
-  private settlingCurrentFrame(params: {
-    isStrike: boolean;
-    isSpare: boolean;
-    pins: number;
-  }): void {
-    const { isStrike, isSpare, pins } = params;
-    this.decreaseModifier();
-
-    if (this.isFillBallFrame()) {
-      this.#_currentFillBall += 1;
-    }
-
-    if (this.isFinalFrame()) {
-      this.handleSettingUpFillBall({
-        isStrike,
-        isSpare,
-      });
-    }
-
-    if (isStrike || this.#_currentThrow === 2) {
-      this.startNewFrame();
-      if ((isStrike || isSpare) && !this.isFillBallFrame()) {
-        this.increaseModifier({
-          isStrike,
-          isSpare,
-        });
-      }
-    } else {
-      this.progressCurrentFrame(pins);
-    }
-  }
-
-  private calculateScore(pins: number): number {
-    const { roundModifier } = this.#_scoreModifier;
-
-    this.#_score = this.#_score + pins + roundModifier * pins;
-    return this.#_score;
-  }
-
-  public roll(pins: number): number {
-    this.checkGameRules(pins);
-    const isStrike = this.checkIsStrike(pins);
-    const isSpare = this.checkIsSpare(pins);
-
-    this.calculateScore(pins);
-
-    this.settlingCurrentFrame({
-      isStrike,
-      isSpare,
-      pins,
-    });
-
-    return this.#_score;
-  }
-
-  private checkFetchingScoreAbility(): void {
+  private validateScore(): void {
     if (
-      !(
-        this.#_currentFrame > MAX_FRAME &&
-        this.#_currentFillBall > this.#_maxFillBall
-      )
+      this.frame < 10 ||
+      (this.frame === 10 && this.runningFrame.length > 0) ||
+      (this.frame > 10 && this.multiplierNext > 0)
     ) {
       throw new Error("Score cannot be taken until the end of the game");
     }
   }
 
+  public roll(pins: number): void {
+    // Checking that the number of pins is valid
+    this.validateRoll(pins);
+
+    // Create the current frame of [6], [4] => [6, 4]
+    this.runningFrame = this.runningFrame.concat(pins);
+
+    // Ensure that our current frame is a valid one
+    Bowling.validateFrame(this.runningFrame);
+    // "this.frame" here outputs 1, 1, 2, 2, 3, 3 etc...
+    const filler = this.frame > 10 ? 1 : 0; // filler here is a boolean to represent whether we're still playing
+    // "this.runningScore" === 6, 16, 16 ... 16
+    // "this.multiplierNext" and "this.multiplierNextNext" allows us to keep track of the points we need to award to the current frame based on whether it was
+    // eg. strike in the current frame => multiplierNext === 1 and multiplierNextNext === 1 as soon as we close the frame with the strike both multiplierNext === 0; multiplierNextNext === 0
+    this.runningScore =
+      this.runningScore + (1 + this.multiplierNext - filler) * pins;
+    this.multiplierNext = this.multiplierNextNext;
+    this.multiplierNextNext = 0;
+    // -----
+
+    // Calculate pins that were knocked eg. Frame 1 has 6 for the first roll and 4 for the second roll, it means that the frameTotal is 10
+    const frameTotal = this.runningFrame.reduce((acc, val) => acc + val, 0);
+    // Frame is complete only if we get a strike in the first roll of the frame OR we get to the end of the rolls of the frame (max 2 unless special case)
+    if (frameTotal === 10 || this.runningFrame.length === 2) {
+      // Strike
+      // Can only happen whenever we're on the first roll of the frame
+      // Allows us track of what we need to add to the frame with the
+      if (this.runningFrame.length === 1) {
+        if (this.frame < 11) {
+          this.multiplierNextNext++;
+        }
+      }
+
+      // Spare
+      if (frameTotal === 10) {
+        if (this.frame < 11) {
+          this.multiplierNext++;
+        }
+      }
+
+      // Reset Frame
+      this.runningFrame = [];
+      this.frame++;
+    }
+  }
+
   public score(): number {
-    this.checkFetchingScoreAbility();
-    return this.#_score;
+    this.validateScore();
+    return this.runningScore;
   }
 }
